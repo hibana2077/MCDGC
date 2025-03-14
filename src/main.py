@@ -236,7 +236,7 @@ def main():
         break
     
     # 執行 Monte Carlo Dropout Grad-CAM
-    mean_cam, std_cam, cam_samples = mc_dropout_gradcam(model, test_image, num_samples=30)
+    mean_cam, std_cam, cam_samples = mc_dropout_gradcam(model, test_image, num_samples=60)
     
     # 可視化結果
     visualize_results(test_image, mean_cam, std_cam, cam_samples)
