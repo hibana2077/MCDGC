@@ -241,14 +241,13 @@ def main():
     # 可視化結果
     visualize_results(test_image, mean_cam, std_cam, cam_samples)
     
-    print(f"真實標籤: {test_label}")
+    print(f"True Label: {test_label}")
     
     # 預測標籤
     model.eval()
-    with torch.no_grad():
-        output = model(test_image)
-        pred = output.argmax(dim=1).item()
-    print(f"預測標籤: {pred}")
+    output = model(test_image)
+    pred = output.argmax(dim=1).item()
+    print(f"Prediction Label: {pred}")
 
 if __name__ == "__main__":
     main()
