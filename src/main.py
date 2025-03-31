@@ -8,6 +8,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import random
+from sklearn.metrics import classification_report
+from pytorch_grad_cam import GradCAM, HiResCAM, ScoreCAM, GradCAMPlusPlus, AblationCAM, XGradCAM, EigenCAM, FullGrad
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from pytorch_grad_cam.utils.image import show_cam_on_image
 
 # Set Seed
 torch.manual_seed(42)
@@ -39,6 +43,7 @@ class DropoutCNN(nn.Module):
         x = self.pool(x)
         
         x = F.relu(self.conv2(x))
+        x = self.dropout(F.relu(x))
         x = self.pool(x)
         
         # Save final conv layer output for Grad-CAM
@@ -51,7 +56,8 @@ class DropoutCNN(nn.Module):
         x = self.pool(x)
         
         x = x.view(x.size(0), -1)
-        x = self.dropout(F.relu(self.fc1(x)))
+        x = F.relu(self.fc1(x))
+        # x = self.dropout(F.relu(self.fc1(x)))
         x = self.fc2(x)
         return x
     
@@ -110,7 +116,6 @@ def train_model(model, train_loader, epochs=5):
 
 # Compute Grad-CAM
 def compute_gradcam(model, input_image, target_class=None):
-    model.eval()
     
     output = model(input_image)
     
@@ -135,12 +140,13 @@ def compute_gradcam(model, input_image, target_class=None):
     cam = cam - torch.min(cam)
     cam = cam / (torch.max(cam) + 1e-10)
     
-    cam = F.interpolate(cam, size=input_image.shape[2:], mode='bilinear', align_corners=False)
+    cam = F.interpolate(cam, size=input_image.shape[2:], mode='bilinear', align_corners=True)
     
     return cam.detach().cpu().numpy()[0, 0]
 
 # Monte Carlo Dropout Grad-CAM
 def mc_dropout_gradcam(model, input_image, num_samples=30, target_class=None):
+    model.eval()
     for m in model.modules():
         if isinstance(m, nn.Dropout):
             m.train()
@@ -157,7 +163,7 @@ def mc_dropout_gradcam(model, input_image, num_samples=30, target_class=None):
     return mean_cam, std_cam, cam_samples
 
 # Visualize results (handles both grayscale and color images)
-def visualize_results(image, mean_cam, std_cam, samples=None, num_samples_to_show=5):
+def visualize_results(image, mean_cam, std_cam, samples=None, num_samples_to_show=5, loop_times=1):
     if image.shape[0] == 3:
         # Convert from (3, H, W) to (H, W, 3)
         orig_image = np.transpose(image.cpu().squeeze().numpy(), (1, 2, 0))
@@ -202,7 +208,8 @@ def visualize_results(image, mean_cam, std_cam, samples=None, num_samples_to_sho
     plt.axis('off')
     
     plt.tight_layout()
-    plt.savefig('mc_gradcam_result.png')
+    # plt.savefig('mc_gradcam_result.png')
+    plt.savefig(f"mc_gradcam_result_{loop_times}.png")
     plt.show()
     
     if samples is not None and num_samples_to_show > 0:
@@ -217,7 +224,8 @@ def visualize_results(image, mean_cam, std_cam, samples=None, num_samples_to_sho
             plt.imshow(samples[i], cmap='jet', alpha=0.5)
             plt.axis('off')
         plt.tight_layout()
-        plt.savefig('mc_gradcam_samples.png')
+        # plt.savefig('mc_gradcam_samples.png')
+        plt.savefig(f"mc_gradcam_samples_{loop_times}.png")
         plt.show()
 
 # Main function with option for dataset choice
@@ -243,24 +251,41 @@ def main():
     model = train_model(model, train_loader, epochs=10)
     
     torch.save(model.state_dict(), 'dropout_cnn.pth')
+
+    print(model)
     
-    # Get one sample from test set
-    idx = random.randint(0, len(test_loader.dataset) - 1)
-    test_image, test_label = test_loader.dataset[idx]
-    test_image = test_image.unsqueeze(0).to(device)
-    
-    # Execute Monte Carlo Dropout Grad-CAM
-    mean_cam, std_cam, cam_samples = mc_dropout_gradcam(model, test_image, num_samples=60)
-    
-    # Visualize results
-    visualize_results(test_image[0], mean_cam, std_cam, cam_samples)
-    
-    print(f"True Label: {test_label}")
-    
+    # Evaluate on test set and print classification report
+    y_true = []
+    y_pred = []
     model.eval()
-    output = model(test_image)
-    pred = output.argmax(dim=1).item()
-    print(f"Prediction Label: {pred}")
+    for inputs, labels in test_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs)
+        preds = outputs.argmax(dim=1)
+        y_true.extend(labels.cpu().numpy())
+        y_pred.extend(preds.cpu().numpy())
+    print("Classification Report:")
+    print(classification_report(y_true, y_pred))
+    
+    for i in range(5):
+        print(f"Iteration {i+1}")
+        # Get one sample from test set
+        idx = random.randint(0, len(test_loader.dataset) - 1)
+        test_image, test_label = test_loader.dataset[idx]
+        test_image = test_image.unsqueeze(0).to(device)
+        
+        # Execute Monte Carlo Dropout Grad-CAM
+        mean_cam, std_cam, cam_samples = mc_dropout_gradcam(model, test_image, num_samples=60)
+        
+        # Visualize results
+        visualize_results(test_image[0], mean_cam, std_cam, cam_samples, num_samples_to_show=5, loop_times=i+1)
+        
+        print(f"True Label: {test_label}")
+        
+        model.eval()
+        output = model(test_image)
+        pred = output.argmax(dim=1).item()
+        print(f"Prediction Label: {pred}")
 
 if __name__ == "__main__":
     main()
