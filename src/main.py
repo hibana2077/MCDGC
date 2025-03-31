@@ -7,6 +7,7 @@ from torchvision import datasets, transforms
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import random
 
 # Set Seed
 torch.manual_seed(42)
@@ -239,15 +240,14 @@ def main():
     model = DropoutCNN(dropout_rate=0.5, in_channels=in_channels, image_size=image_size).to(device)
     
     # Train model
-    model = train_model(model, train_loader, epochs=3)
+    model = train_model(model, train_loader, epochs=10)
     
     torch.save(model.state_dict(), 'dropout_cnn.pth')
     
     # Get one sample from test set
-    for test_images, test_labels in test_loader:
-        test_image = test_images.to(device)
-        test_label = test_labels.item()
-        break
+    idx = random.randint(0, len(test_loader.dataset) - 1)
+    test_image, test_label = test_loader.dataset[idx]
+    test_image = test_image.unsqueeze(0).to(device)
     
     # Execute Monte Carlo Dropout Grad-CAM
     mean_cam, std_cam, cam_samples = mc_dropout_gradcam(model, test_image, num_samples=60)
